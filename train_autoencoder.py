@@ -24,10 +24,10 @@ from monai.config import print_config
 from monai.utils import set_determinism
 from torch.nn import L1Loss, MSELoss
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.tensorboard import SummaryWriter
+
 
 from utils import KL_loss, define_instance, prepare_dataloader, setup_ddp
-from visualize_image import visualize_one_slice_in_3d_image
+#from visualize_image import visualize_one_slice_in_3d_image
 
 
 def main():
@@ -145,13 +145,6 @@ def main():
     optimizer_g = torch.optim.Adam(params=autoencoder.parameters(), lr=args.autoencoder_train["lr"] * world_size)
     optimizer_d = torch.optim.Adam(params=discriminator.parameters(), lr=args.autoencoder_train["lr"] * world_size)
 
-    # initialize tensorboard writer
-    if rank == 0:
-        Path(args.tfevent_path).mkdir(parents=True, exist_ok=True)
-        tensorboard_path = os.path.join(args.tfevent_path, "autoencoder")
-        Path(tensorboard_path).mkdir(parents=True, exist_ok=True)
-        tensorboard_writer = SummaryWriter(tensorboard_path)
-
     # Step 4: training
     autoencoder_warm_up_n_epochs = 5
     n_epochs = args.autoencoder_train["n_epochs"]
@@ -196,16 +189,6 @@ def main():
                 loss_d.backward()
                 optimizer_d.step()
 
-            # write train loss for each batch into tensorboard
-            if rank == 0:
-                total_step += 1
-                tensorboard_writer.add_scalar("train_recon_loss_iter", recons_loss, total_step)
-                tensorboard_writer.add_scalar("train_kl_loss_iter", kl_loss, total_step)
-                tensorboard_writer.add_scalar("train_perceptual_loss_iter", p_loss, total_step)
-                if epoch > autoencoder_warm_up_n_epochs:
-                    tensorboard_writer.add_scalar("train_adv_loss_iter", generator_loss, total_step)
-                    tensorboard_writer.add_scalar("train_fake_loss_iter", loss_d_fake, total_step)
-                    tensorboard_writer.add_scalar("train_real_loss_iter", loss_d_real, total_step)
 
         # validation
         if epoch % val_interval == 0:
@@ -238,19 +221,6 @@ def main():
                     print("Save trained autoencoder to", trained_g_path)
                     print("Save trained discriminator to", trained_d_path)
 
-                # write val loss for each epoch into tensorboard
-                tensorboard_writer.add_scalar("val_recon_loss", val_recon_epoch_loss, epoch)
-                for axis in range(3):
-                    tensorboard_writer.add_image(
-                        "val_img_" + str(axis),
-                        visualize_one_slice_in_3d_image(images[0, 0, ...], axis).transpose([2, 1, 0]),
-                        epoch,
-                    )
-                    tensorboard_writer.add_image(
-                        "val_recon_" + str(axis),
-                        visualize_one_slice_in_3d_image(reconstruction[0, 0, ...], axis).transpose([2, 1, 0]),
-                        epoch,
-                    )
 
 
 if __name__ == "__main__":
