@@ -21,30 +21,17 @@ from monai.transforms import (
 )
 
 
-def setup_ddp(rank, world_size):
-    print(f"Running DDP diffusion example on rank {rank}/world_size {world_size}.")
-    print(f"Initing to IP {os.environ['MASTER_ADDR']}")
-    dist.init_process_group(
-        backend="nccl", init_method="env://", timeout=timedelta(seconds=36000), rank=rank, world_size=world_size
-    )  # gloo, nccl
-    dist.barrier()
-    device = torch.device(f"cuda:{rank}")
-    return dist, device
-
-
 def prepare_dataloader(
     args,
     batch_size,
     patch_size,
     randcrop=True,
     rank=0,
-    world_size=1,
     cache=1.0,
     download=False,
     size_divisible=16,
     amp=False,
 ):
-    ddp_bool = world_size > 1
     channel = args.channel  # 0 = Flair, 1 = T1
     assert channel in [0, 1, 2, 3], "Choose a valid channel"
     if randcrop:
@@ -88,38 +75,32 @@ def prepare_dataloader(
         ]
     )
     os.makedirs(args.data_base_dir, exist_ok=True)
-    train_ds = DecathlonDataset(
+    train_ds = DecathlonDataset(   #we need to set this eventually to Chexpert dataset
         root_dir=args.data_base_dir,
         task="Task01_BrainTumour",
-        section="training",  # validation
-        cache_rate=cache,  # you may need a few Gb of RAM... Set to 0 otherwise
+        section="training",  # for training
+        cache_rate=cache, 
         num_workers=8,
-        download=download,  # Set download to True if the dataset hasnt been downloaded yet
+        download=download,  
         seed=0,
         transform=train_transforms,
     )
     val_ds = DecathlonDataset(
         root_dir=args.data_base_dir,
         task="Task01_BrainTumour",
-        section="validation",  # validation
-        cache_rate=cache,  # you may need a few Gb of RAM... Set to 0 otherwise
+        section="validation",  #for validation
+        cache_rate=cache, 
         num_workers=8,
-        download=download,  # Set download to True if the dataset hasnt been downloaded yet
+        download=download,  
         seed=0,
         transform=val_transforms,
     )
-    if ddp_bool:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds, num_replicas=world_size, rank=rank)
-        val_sampler = torch.utils.data.distributed.DistributedSampler(val_ds, num_replicas=world_size, rank=rank)
-    else:
-        train_sampler = None
-        val_sampler = None
 
     train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=(not ddp_bool), num_workers=0, pin_memory=False, sampler=train_sampler
+        train_ds, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=False, sampler=None
     )
     val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=False, sampler=val_sampler
+        val_ds, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=False, sampler=None
     )
     if rank == 0:
         print(f'Image shape {train_ds[0]["image"].shape}')
